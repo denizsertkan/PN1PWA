@@ -1,4 +1,3 @@
-const CACHE_NAME = 'PN1-cache-v1';
 const urlsToCache = [
   '/',
   'index.html',
@@ -39,6 +38,8 @@ const urlsToCache = [
   'icons/ios/256.png',
   'icons/ios/512.png',
   'icons/ios/1024.png',
+  // 'path/to/yolo/model.json',
+  // 'path/to/yolo/weights.bin',
 ];
 
 self.addEventListener('install', (event) => {
@@ -49,10 +50,22 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// Possible Caching Strategies:
+// - Stale-While-Revalidate: For fast access to models and data. ✓ (the chosen approach for now)
+// - Dynamic Caching: For handling additional resources and updates.
+// - Background Sync: For uploading data when connectivity is available.
+// - Local Storage: For storing user data and settings.
+
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, networkResponse.clone());
+        });
+        return networkResponse;
+      });
+      return cachedResponse || fetchPromise;
     }),
   );
 });
