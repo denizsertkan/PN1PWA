@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <title>PN1 - AI Dog Translator</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/ios/128.png" type="image/x-icon" />
+    <script src="js/tailwindcss.3415.js"></script>
+  </head>
+  <body
+    class="h-screen w-screen flex flex-col items-center justify-center bg-transparent"
+  >
+    <img
+      src="icons/watermark.dog.svg"
+      alt="Watermark"
+      class="absolute top-2 left-2 w-16 h-auto opacity-40 pointer-events-none"
+    />
+    <img
+      src="icons/watermark.PN1.svg"
+      alt="Watermark"
+      class="absolute top-2 left-[4.5rem] p-2 w-auto h-16 opacity-40 pointer-events-none"
+    />
+
+    <div
+      id="loader"
+      class="absolute top-20 flex flex-col items-center justify-center bg-white rounded"
+    >
+      <img
+        src="icons/ios/512.png"
+        alt="Loading..."
+        class="w-48 h-48 animate-pulse"
+      />
+      <h4>Welcome to PN1</h4>
+    </div>
+
+    <div
+      id="buttons-container"
+      class="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 items-center opacity-0 pointer-events-none transition-opacity duration-500"
+    >
+      <!-- Info/Help Button -->
+      <button
+        id="infoBtn"
+        class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
+      >
+        <img src="icons/infoBtn.svg" alt="Info" class="w-1/2 h-1/2" />
+      </button>
+      <!-- Tweak Button -->
+      <button
+        id="tweakBtn"
+        class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
+      >
+        <img src="icons/tweakBtn.svg" alt="Settings" class="w-1/2 h-1/2" />
+      </button>
+      <!-- Record Button Container Div -->
+      <div class="relative flex flex-col items-center">
+        <!-- Text bubble -->
+        <span
+          id="tapToRecordText"
+          class="absolute -top-14 left-1/2 transform -translate-x-1/2 text-xs font-semibold text-white bg-[#00000099] rounded-xl px-2 py-1 shadow-lg opacity-0 transition-opacity duration-300"
+        >
+          Tap to Record
+        </span>
+        <!-- Record Button -->
+        <button
+          id="recordBtn"
+          class="w-[18vw] h-[18vw] max-w-24 max-h-24 min-w-16 min-h-16 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
+        >
+          <div
+            class="absolute w-full h-full rounded-full bg-[#93C575] opacity-30 animate-ping"
+          ></div>
+          <img
+            src="icons/recordBtn.svg"
+            alt="Record"
+            class="w-1/2 h-1/2 relative"
+          />
+        </button>
+      </div>
+      <!-- Saved Button -->
+      <button
+        id="savedBtn"
+        class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
+      >
+        <img src="icons/savedBtn.svg" alt="Saved" class="w-1/2 h-1/2" />
+      </button>
+      <!-- SignIn Button -->
+      <button
+        id="signinBtn"
+        class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
+      >
+        <img src="icons/loginBtn.svg" alt="Sign In" class="w-1/2 h-1/2" />
+      </button>
+    </div>
+
+    <div
+      id="infoModal"
+      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
+    >
+      <div
+        class="max-w-md w-full h-[90vh] max-h-[720px] mx-4 p-6 bg-white rounded-lg"
+      >
+        <!-- PN1 Introduction -->
+        <h2 class="text-2xl font-bold mb-2 text-center">Welcome to PN1</h2>
+        <p class="mb-4 text-xs text-gray-600">
+          PN1 is an AI-powered app designed to help you understand your pet.
+          Record while translating, and share your favorite moments while
+          discovering new ways to bond with your pet.
+        </p>
+
+        <!-- QR Code Section -->
+        <p class="mb-4 text-sm text-center text-gray-700">
+          Scan the QR code to access this PWA:
+        </p>
+        <img id="qrCode" alt="QR Code" class="w-60 h-60 mx-auto mb-4" />
+
+        <!-- Button Explanation -->
+        <div class="text-sm mb-4 space-y-2">
+          <p class="flex items-center gap-2">
+            <img
+              src="icons/infoBtn.svg"
+              alt="Info Icon"
+              class="w-4 h-4 black-svg"
+            />
+            <strong>Info/Help:</strong> Opens this help dialog.
+          </p>
+          <p class="flex items-center gap-2">
+            <img
+              src="icons/tweakBtn.svg"
+              alt="Settings Icon"
+              class="w-4 h-4 black-svg"
+            />
+            <strong>Settings:</strong> Adjusts app settings.
+          </p>
+          <p class="flex items-center gap-2">
+            <img
+              src="icons/recordBtn.svg"
+              alt="Record Icon"
+              class="w-4 h-4 black-svg"
+            />
+            <strong>Record:</strong> Records your memories with your pet.
+          </p>
+          <p class="flex items-center gap-2">
+            <img
+              src="icons/savedBtn.svg"
+              alt="Saved Icon"
+              class="w-4 h-4 black-svg"
+            />
+            <strong>Saved:</strong> Views saved videos.
+          </p>
+          <p class="flex items-center gap-2">
+            <img
+              src="icons/loginBtn.svg"
+              alt="Login Icon"
+              class="w-4 h-4 black-svg"
+            />
+            <strong>Login:</strong> Logs you in for additional features.
+          </p>
+        </div>
+
+        <!-- Close Button -->
+        <button
+          id="closeModal"
+          class="block mx-auto px-4 py-2 bg-white text-[#93C575] border border-[#93C575] rounded-full hover:bg-[#93C575] hover:text-white"
+        >
+          I understand
+        </button>
+
+        <!-- Terms & Copyright -->
+        <div class="text-gray-500 text-center mt-4">
+          <p>
+            <a href="#" class="text-xs underline hover:text-gray-700"
+              >Ts & Cs</a
+            >
+            |
+            <a href="#" class="text-xs underline hover:text-gray-700"
+              >Privacy Policy</a
+            >
+          </p>
+          <p class="text-xs mt-1">&copy; 2025 PN1. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+
+    <video
+      id="video"
+      class="w-full h-full object-cover hidden"
+      autoplay
+      muted
+      playsinline
+    ></video>
+
+    <script src="js/main.js"></script>
+  </body>
+</html>
