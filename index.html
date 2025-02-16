@@ -7,10 +7,15 @@
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
     />
+    <link rel="icon" href="icons/ios/128.png" type="image/x-icon" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/ios/180.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/ios/120.png" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/icons/ios/76.png" />
+    <link rel="apple-touch-icon" href="/icons/ios/128.png" />
     <title>PN1 - AI Dog Translator</title>
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="manifest" href="manifest.json" />
-    <link rel="icon" href="icons/ios/128.png" type="image/x-icon" />
+
     <script src="js/tailwindcss.3415.min.js"></script>
   </head>
   <body
@@ -68,14 +73,14 @@
         </span>
         <!-- Record Button -->
         <button
-          id="recordBtn"
+          id="recordBeginBtn"
           class="w-[18vw] h-[18vw] max-w-24 max-h-24 min-w-16 min-h-16 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition relative"
         >
           <div
             class="absolute w-full h-full rounded-full bg-[#93C575] opacity-30 animate-ping"
           ></div>
           <img
-            src="icons/recordBtn.svg"
+            src="icons/recordBeginBtn.svg"
             alt="Record"
             class="w-1/2 h-1/2 relative"
           />
@@ -97,28 +102,24 @@
       </button>
     </div>
 
+    <!-- Info Modal -->
     <div
       id="infoModal"
       class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
     >
       <div
-        class="max-w-md w-full h-[90vh] max-h-[720px] mx-4 p-6 bg-white rounded-lg"
+        class="relative max-w-md w-full h-[80vh] mx-4 p-6 bg-white rounded-[1.5rem]"
       >
-        <!-- PN1 Introduction -->
         <h2 class="text-2xl font-bold mb-2 text-center">Welcome to PN1</h2>
         <p class="mb-4 text-xs text-gray-600">
           PN1 is an AI-powered app designed to help you understand your pet.
           Record while translating, and share your favorite moments while
           discovering new ways to bond with your pet.
         </p>
-
-        <!-- QR Code Section -->
         <p class="mb-4 text-sm text-center text-gray-700">
           Scan the QR code to access this PWA:
         </p>
         <img id="qrCode" alt="QR Code" class="w-60 h-60 mx-auto mb-4" />
-
-        <!-- Button Explanation -->
         <div class="text-sm mb-4 space-y-2">
           <p class="flex items-center gap-2">
             <img
@@ -138,7 +139,7 @@
           </p>
           <p class="flex items-center gap-2">
             <img
-              src="icons/recordBtn.svg"
+              src="icons/recordBeginBtn.svg"
               alt="Record Icon"
               class="w-4 h-4 black-svg"
             />
@@ -161,16 +162,12 @@
             <strong>Login:</strong> Logs you in for additional features.
           </p>
         </div>
-
-        <!-- Close Button -->
         <button
           id="closeModal"
           class="block mx-auto px-4 py-2 bg-white text-[#93C575] border border-[#93C575] rounded-full hover:bg-[#93C575] hover:text-white"
         >
           I understand
         </button>
-
-        <!-- Terms & Copyright -->
         <div class="text-gray-500 text-center mt-4">
           <p>
             <a href="#" class="text-xs underline hover:text-gray-700"
@@ -186,6 +183,72 @@
       </div>
     </div>
 
+    <!-- Tweak Modal -->
+    <div
+      id="tweakModal"
+      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
+    >
+      <div
+        class="relative max-w-md w-full h-[80vh] mx-4 p-6 bg-white rounded-[1.5rem]"
+      >
+        <button
+          id="closeTweakModal"
+          class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
+        >
+          &#x2715;
+        </button>
+        <h2 class="text-2xl font-bold mb-2 text-center">Settings</h2>
+        <p class="mb-4 text-xs text-gray-600">
+          Adjust app settings to customize your experience.
+        </p>
+      </div>
+    </div>
+
+    <!-- Saved Modal -->
+    <div
+      id="savedModal"
+      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
+    >
+      <div
+        class="relative max-w-md w-full h-[80vh] mx-4 p-6 bg-white rounded-[1.5rem]"
+      >
+        <button
+          id="closeSavedModal"
+          class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
+        >
+          &#x2715;
+        </button>
+        <div class="h-full overflow-y-auto">
+          <h2 class="text-2xl font-bold mb-2 text-center">Saved Videos</h2>
+          <div
+            id="savedVideosContainer"
+            class="mb-4 text-xs text-gray-600"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SignIn Modal -->
+    <div
+      id="signinModal"
+      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
+    >
+      <div
+        class="relative max-w-md w-full h-[80vh] mx-4 p-6 bg-white rounded-[1.5rem]"
+      >
+        <button
+          id="closeSigninModal"
+          class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
+        >
+          &#x2715;
+        </button>
+        <h2 class="text-2xl font-bold mb-2 text-center">Sign In</h2>
+        <p class="mb-4 text-xs text-gray-600">
+          Log in to access additional features.
+        </p>
+      </div>
+    </div>
+
     <video
       id="video"
       class="w-full h-full object-cover hidden"
@@ -194,6 +257,7 @@
       playsinline
     ></video>
 
+    <script src="js/indexedDB.js"></script>
     <script src="js/main.js"></script>
   </body>
 </html>

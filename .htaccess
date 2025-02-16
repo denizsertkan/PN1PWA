@@ -1,0 +1,3 @@
+Redirect 404 /favicon.ico /icons/ios/128.png
+Redirect 404 /apple-touch-icon.png /icons/ios/128.png
+Redirect 404 /apple-touch-icon-precomposed.png /icons/ios/128.png

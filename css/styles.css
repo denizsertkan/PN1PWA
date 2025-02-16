@@ -24,3 +24,20 @@ body {
 img.black-svg {
   filter: invert(0%) brightness(0);
 }
+
+/* Add this to your css/styles.css file */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  63% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.recording {
+  animation: pulse 1s infinite;
+}
