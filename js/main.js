@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let savedVideos = [];
   let isRecording = false;
   let isLongPress = false;
+  let model;
 
   /**
    * Sets up the camera stream.
@@ -76,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
    * Handles the camera stream once access is granted.
    * @param {MediaStream} stream - The camera stream.
    */
-  function handleCameraStream(stream) {
+  async function handleCameraStream(stream) {
     video.srcObject = stream;
     video.onloadedmetadata = () => {
       video.classList.remove('hidden');
@@ -88,33 +89,39 @@ document.addEventListener('DOMContentLoaded', () => {
         tapToRecordText.classList.add('opacity-0');
       }, 3000);
 
-      const canvas = document.createElement('canvas');
+      // Use the existing canvas element from the HTML
+      const canvas = document.getElementById('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
 
-      const watermarkImg1 = new Image();
-      watermarkImg1.src = 'icons/watermark.dog.svg';
-      const watermarkImg2 = new Image();
-      watermarkImg2.src = 'icons/watermark.PN1.svg';
+      const dogWatermark = new Image();
+      dogWatermark.src = 'icons/watermark.dog.svg';
+      const pn1Watermark = new Image();
+      pn1Watermark.src = 'icons/watermark.PN1.svg';
 
       Promise.all([
-        new Promise((resolve) => (watermarkImg1.onload = resolve)),
-        new Promise((resolve) => (watermarkImg2.onload = resolve)),
-      ]).then(() => {
+        new Promise((resolve) => (dogWatermark.onload = resolve)),
+        new Promise((resolve) => (pn1Watermark.onload = resolve)),
+      ]).then(async () => {
+        model = await cocoSsd.load();
+
         function drawCanvasFrame() {
           if (!video.videoWidth || !video.videoHeight) return;
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.globalAlpha = 0.2;
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          ctx.drawImage(watermarkImg1, 8, 8, 64, 64);
-          ctx.drawImage(watermarkImg2, 80, 13, 108, 54);
+          ctx.drawImage(dogWatermark, 8, 8, 64, 64);
+          ctx.drawImage(pn1Watermark, 80, 13, 108, 54);
           ctx.globalAlpha = 1.0;
+          detectFrame(video, model, ctx);
           requestAnimationFrame(drawCanvasFrame);
         }
+
         drawCanvasFrame();
       });
 
+      // Capture the stream from the existing canvas
       const canvasStream = canvas.captureStream(75);
       mediaRecorder = new MediaRecorder(canvasStream, {
         mimeType: 'video/mp4',
@@ -145,6 +152,80 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Recording started.');
       };
     };
+  }
+
+  async function detectFrame(video, model, ctx) {
+    const predictions = await model.detect(video);
+
+    // Clear and redraw the video frame
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.drawImage(video, 0, 0, ctx.canvas.width, ctx.canvas.height);
+
+    predictions.forEach((prediction) => {
+      const [x, y, width, height] = prediction.bbox;
+
+      if (
+        x >= 0 &&
+        y >= 0 &&
+        width > 0 &&
+        height > 0 &&
+        prediction.class === 'dog'
+      ) {
+        const cornerRadius = 5; // Radius for rounded corners
+
+        // Set line style
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
+        ctx.lineWidth = 1.5; // Thinner line
+        ctx.lineJoin = 'round'; // Smoother corners
+        ctx.lineCap = 'round';
+
+        // Set fill style
+        ctx.fillStyle = 'rgba(147, 197, 117, 0.1)'; // 10% opacity 93C575 color
+
+        // Draw rounded rectangle with fill
+        ctx.beginPath();
+        ctx.moveTo(x + cornerRadius, y);
+        ctx.arcTo(x + width, y, x + width, y + cornerRadius, cornerRadius);
+        ctx.arcTo(
+          x + width,
+          y + height,
+          x + width - cornerRadius,
+          y + height,
+          cornerRadius,
+        );
+        ctx.arcTo(x, y + height, x, y + height - cornerRadius, cornerRadius);
+        ctx.arcTo(x, y, x + cornerRadius, y, cornerRadius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // (Optional) Remove the following if you don’t want text labels:
+        ctx.font = '12px Arial';
+        ctx.fillStyle = 'white';
+        ctx.fillText(prediction.class, x, y > 10 ? y - 10 : 10);
+      } else {
+        console.error('Invalid bounding box coordinates:', {
+          x,
+          y,
+          width,
+          height,
+        });
+      }
+    });
+
+    // Draw watermarks at the top-left corner
+    const dogWatermark = new Image();
+    dogWatermark.src = 'icons/watermark.dog.svg';
+    const pn1Watermark = new Image();
+    pn1Watermark.src = 'icons/watermark.PN1.svg';
+
+    Promise.all([
+      new Promise((resolve) => (dogWatermark.onload = resolve)),
+      new Promise((resolve) => (pn1Watermark.onload = resolve)),
+    ]).then(() => {
+      ctx.drawImage(watermarkImg1, 8, 8, 64, 64);
+      ctx.drawImage(watermarkImg2, 80, 8, 108, 54);
+    });
   }
 
   // Display saved videos in the savedModal

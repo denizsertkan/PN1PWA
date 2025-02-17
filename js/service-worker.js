@@ -8,8 +8,6 @@ const urlsToCache = [
   '/js/main.js',
   '/js/indexedDB.js',
   '/js/service-worker.js',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
   '/icons/android/android-launchericon-512-512.png',
   '/icons/android/android-launchericon-192-192.png',
   '/icons/android/android-launchericon-144-144.png',

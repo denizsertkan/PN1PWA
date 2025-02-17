@@ -17,6 +17,8 @@
     <link rel="manifest" href="manifest.json" />
 
     <script src="js/tailwindcss.3415.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   </head>
   <body
     class="h-screen w-screen flex flex-col items-center justify-center bg-transparent"
@@ -34,7 +36,7 @@
 
     <div
       id="loader"
-      class="absolute top-20 flex flex-col items-center justify-center bg-white rounded"
+      class="absolute top-20 flex flex-col items-center justify-center rounded"
     >
       <img
         src="icons/ios/512.png"
@@ -46,7 +48,7 @@
 
     <div
       id="buttons-container"
-      class="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 items-center opacity-0 pointer-events-none transition-opacity duration-500"
+      class="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 items-center opacity-0 pointer-events-none transition-opacity duration-500 z-20"
     >
       <!-- Info/Help Button -->
       <button
@@ -249,13 +251,20 @@
       </div>
     </div>
 
-    <video
-      id="video"
-      class="w-full h-full object-cover hidden"
-      autoplay
-      muted
-      playsinline
-    ></video>
+    <div class="relative w-full h-full">
+      <video
+        id="video"
+        class="w-full h-full object-cover hidden"
+        autoplay
+        muted
+        playsinline
+      ></video>
+      <canvas
+        id="canvas"
+        class="absolute top-0 left-0 w-full h-full"
+        style="pointer-events: none; z-index: 10;"
+      ></canvas>
+    </div>
 
     <script src="js/indexedDB.js"></script>
     <script src="js/main.js"></script>
