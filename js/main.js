@@ -15,25 +15,24 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Get references to DOM elements
 document.addEventListener('DOMContentLoaded', () => {
+  // DOM elements
   const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
   const loader = document.getElementById('loader');
   const buttonsContainer = document.getElementById('buttons-container');
   const tapToRecordText = document.getElementById('tapToRecordText');
 
+  // Buttons and modals
   const infoBtn = document.getElementById('infoBtn');
   const tweakBtn = document.getElementById('tweakBtn');
   const recordBeginBtn = document.getElementById('recordBeginBtn');
   const savedBtn = document.getElementById('savedBtn');
   const signinBtn = document.getElementById('signinBtn');
-
-  // Modal elements
   const infoModal = document.getElementById('infoModal');
   const tweakModal = document.getElementById('tweakModal');
   const savedModal = document.getElementById('savedModal');
   const signinModal = document.getElementById('signinModal');
-
   const qrCodeImg = document.getElementById('qrCode');
   const closeModalBtn = document.getElementById('closeModal');
   const closeTweakModalBtn = document.getElementById('closeTweakModal');
@@ -42,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedVideosContainer = document.getElementById('savedVideosContainer');
   const dropzoneFile = document.getElementById('videoUpload');
 
-  // Flag to ensure the camera is only initialized once.
+  // Flags, storage, and globals
   let cameraInitialized = false;
   let mediaRecorder;
   let recordedChunks = [];
@@ -50,6 +49,26 @@ document.addEventListener('DOMContentLoaded', () => {
   let isRecording = false;
   let isLongPress = false;
   let model;
+  let cachedDetections = []; // Global variable to store detection results
+
+  // Preload watermark images once and reuse them later.
+  const dogWatermarkImg = new Image();
+  const pn1WatermarkImg = new Image();
+  dogWatermarkImg.src = 'icons/watermark.dog.svg';
+  pn1WatermarkImg.src = 'icons/watermark.PN1.svg';
+
+  // Wait for watermark images to load before proceeding.
+  Promise.all([
+    new Promise((resolve) => {
+      dogWatermarkImg.onload = resolve;
+    }),
+    new Promise((resolve) => {
+      pn1WatermarkImg.onload = resolve;
+    }),
+  ]).then(() => {
+    // Now start the camera (and later the model will be loaded)
+    setupCamera();
+  });
 
   /**
    * Sets up the camera stream.
@@ -75,7 +94,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /**
    * Handles the camera stream once access is granted.
-   * @param {MediaStream} stream - The camera stream.
    */
   async function handleCameraStream(stream) {
     video.srcObject = stream;
@@ -89,39 +107,34 @@ document.addEventListener('DOMContentLoaded', () => {
         tapToRecordText.classList.add('opacity-0');
       }, 3000);
 
-      // Use the existing canvas element from the HTML
-      const canvas = document.getElementById('canvas');
+      const backgroundCanvas = document.createElement('canvas');
+      backgroundCanvas.width = video.videoWidth;
+      backgroundCanvas.height = video.videoHeight;
+      backgroundCanvas.style.position = 'absolute';
+      backgroundCanvas.style.top = '0';
+      backgroundCanvas.style.left = '0';
+      backgroundCanvas.style.width = '100%';
+      backgroundCanvas.style.height = '100%';
+      backgroundCanvas.style.zIndex = '-1';
+
+      document.body.appendChild(backgroundCanvas);
+
+      const bgCtx = backgroundCanvas.getContext('2d');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
 
-      const dogWatermark = new Image();
-      dogWatermark.src = 'icons/watermark.dog.svg';
-      const pn1Watermark = new Image();
-      pn1Watermark.src = 'icons/watermark.PN1.svg';
-
-      Promise.all([
-        new Promise((resolve) => (dogWatermark.onload = resolve)),
-        new Promise((resolve) => (pn1Watermark.onload = resolve)),
-      ]).then(async () => {
-        model = await cocoSsd.load();
-
-        function drawCanvasFrame() {
-          if (!video.videoWidth || !video.videoHeight) return;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.globalAlpha = 0.2;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          ctx.drawImage(dogWatermark, 8, 8, 64, 64);
-          ctx.drawImage(pn1Watermark, 80, 13, 108, 54);
-          ctx.globalAlpha = 1.0;
-          detectFrame(video, model, ctx);
-          requestAnimationFrame(drawCanvasFrame);
-        }
-
-        drawCanvasFrame();
+      // Load ML model, NOTE: Consider replacing cocoSsd.load() with a lighter model if available.
+      cocoSsd.load().then((loadedModel) => {
+        model = loadedModel;
+        // Start the detection loop (running every 75ms)
+        setInterval(updateDetections, 75);
+        // Start the rendering loop
+        requestAnimationFrame(drawCanvasFrame);
       });
 
-      // Capture the stream from the existing canvas
+      // Set up media recorder on the canvas stream.
       const canvasStream = canvas.captureStream(75);
       mediaRecorder = new MediaRecorder(canvasStream, {
         mimeType: 'video/mp4',
@@ -131,11 +144,11 @@ document.addEventListener('DOMContentLoaded', () => {
           recordedChunks.push(event.data);
         }
       };
+
       mediaRecorder.onstop = function () {
         const blob = new Blob(recordedChunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
         saveVideoToDB(blob, url);
-        // Refresh the saved videos list to capture the new record's id.
         loadVideosFromDB((records) => {
           savedVideos = records.map((record) => ({
             id: record.id,
@@ -154,83 +167,192 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  async function detectFrame(video, model, ctx) {
-    const predictions = await model.detect(video);
+  // Global smoothed bounding box state (initially invalid)
+  let smoothedBox = { x: 0, y: 0, w: 0, h: 0, valid: false };
 
-    // Clear and redraw the video frame
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.drawImage(video, 0, 0, ctx.canvas.width, ctx.canvas.height);
-
-    predictions.forEach((prediction) => {
-      const [x, y, width, height] = prediction.bbox;
-
-      if (
-        x >= 0 &&
-        y >= 0 &&
-        width > 0 &&
-        height > 0 &&
-        prediction.class === 'dog'
-      ) {
-        const cornerRadius = 5; // Radius for rounded corners
-
-        // Set line style
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
-        ctx.lineWidth = 1.5; // Thinner line
-        ctx.lineJoin = 'round'; // Smoother corners
-        ctx.lineCap = 'round';
-
-        // Set fill style
-        ctx.fillStyle = 'rgba(147, 197, 117, 0.1)'; // 10% opacity 93C575 color
-
-        // Draw rounded rectangle with fill
-        ctx.beginPath();
-        ctx.moveTo(x + cornerRadius, y);
-        ctx.arcTo(x + width, y, x + width, y + cornerRadius, cornerRadius);
-        ctx.arcTo(
-          x + width,
-          y + height,
-          x + width - cornerRadius,
-          y + height,
-          cornerRadius,
-        );
-        ctx.arcTo(x, y + height, x, y + height - cornerRadius, cornerRadius);
-        ctx.arcTo(x, y, x + cornerRadius, y, cornerRadius);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // (Optional) Remove the following if you don’t want text labels:
-        ctx.font = '12px Arial';
-        ctx.fillStyle = 'white';
-        ctx.fillText(prediction.class, x, y > 10 ? y - 10 : 10);
-      } else {
-        console.error('Invalid bounding box coordinates:', {
-          x,
-          y,
-          width,
-          height,
-        });
-      }
-    });
-
-    // Draw watermarks at the top-left corner
-    const dogWatermark = new Image();
-    dogWatermark.src = 'icons/watermark.dog.svg';
-    const pn1Watermark = new Image();
-    pn1Watermark.src = 'icons/watermark.PN1.svg';
-
-    Promise.all([
-      new Promise((resolve) => (dogWatermark.onload = resolve)),
-      new Promise((resolve) => (pn1Watermark.onload = resolve)),
-    ]).then(() => {
-      ctx.drawImage(watermarkImg1, 8, 8, 64, 64);
-      ctx.drawImage(watermarkImg2, 80, 8, 108, 54);
-    });
+  // Simple linear interpolation function
+  function lerp(start, end, t) {
+    return start + t * (end - start);
   }
 
-  // Display saved videos in the savedModal
+  /**
+   * Periodically updates detection results.
+   */
+  async function updateDetections() {
+    if (model && video.readyState === video.HAVE_ENOUGH_DATA) {
+      try {
+        // Create an offscreen canvas at a lower resolution (e.g., 224x224)
+        const detectionCanvas = document.createElement('canvas');
+        const detectionWidth = 224;
+        const detectionHeight = 224;
+        detectionCanvas.width = detectionWidth;
+        detectionCanvas.height = detectionHeight;
+        const detectionCtx = detectionCanvas.getContext('2d');
+
+        // Draw the current video frame scaled down to the offscreen canvas
+        detectionCtx.drawImage(video, 0, 0, detectionWidth, detectionHeight);
+
+        // Run detection on the lower-resolution canvas
+        const predictions = await model.detect(detectionCanvas);
+
+        // Calculate scaling factors to map detection coordinates back to full video dimensions
+        const scaleX = video.videoWidth / detectionWidth;
+        const scaleY = video.videoHeight / detectionHeight;
+
+        // Find a dog detection (assuming one is present)
+        const dog = predictions.find((pred) => pred.class === 'dog');
+        if (dog) {
+          // Extract the detection bounding box and scale it
+          const [newX, newY, newW, newH] = dog.bbox;
+          const fullNewX = newX * scaleX;
+          const fullNewY = newY * scaleY;
+          const fullNewW = newW * scaleX;
+          const fullNewH = newH * scaleY;
+
+          const alpha = 0.4; // Smoothing factor; adjust for faster/slower gliding
+
+          if (!smoothedBox.valid) {
+            // Initialize smoothedBox on the first detection
+            smoothedBox = {
+              x: fullNewX,
+              y: fullNewY,
+              w: fullNewW,
+              h: fullNewH,
+              valid: true,
+            };
+          } else {
+            // Smoothly interpolate towards the new detection coordinates
+            smoothedBox.x = lerp(smoothedBox.x, fullNewX, alpha);
+            smoothedBox.y = lerp(smoothedBox.y, fullNewY, alpha);
+            smoothedBox.w = lerp(smoothedBox.w, fullNewW, alpha);
+            smoothedBox.h = lerp(smoothedBox.h, fullNewH, alpha);
+          }
+        } else {
+          smoothedBox.valid = false;
+        }
+      } catch (error) {
+        console.error('Error during detection:', error);
+      }
+    }
+  }
+
+  /**
+   * Render loop: draws video, overlays detections, and paints watermarks.
+   */
+  function drawCanvasFrame() {
+    if (!video.videoWidth || !video.videoHeight) {
+      requestAnimationFrame(drawCanvasFrame);
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const margin = 1.25; // Adjust margin as needed
+    const borderThickness = 2.5;
+    const borderRadius = 5;
+    const scale = Math.min(
+      (canvas.width - 2 * margin) / video.videoWidth,
+      (canvas.height - 2 * margin) / video.videoHeight,
+    );
+    const newWidth = video.videoWidth * scale;
+    const newHeight = video.videoHeight * scale;
+    const xOffset = (canvas.width - newWidth) / 2;
+    const yOffset = (canvas.height - newHeight) / 2;
+
+    // Draw a rounded border container
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = borderThickness;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.beginPath();
+    ctx.moveTo(xOffset + borderRadius, yOffset);
+    ctx.arcTo(
+      xOffset + newWidth,
+      yOffset,
+      xOffset + newWidth,
+      yOffset + borderRadius,
+      borderRadius,
+    );
+    ctx.arcTo(
+      xOffset + newWidth,
+      yOffset + newHeight,
+      xOffset + newWidth - borderRadius,
+      yOffset + newHeight,
+      borderRadius,
+    );
+    ctx.arcTo(
+      xOffset,
+      yOffset + newHeight,
+      xOffset,
+      yOffset + newHeight - borderRadius,
+      borderRadius,
+    );
+    ctx.arcTo(xOffset, yOffset, xOffset + borderRadius, yOffset, borderRadius);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Clip to the rounded container and draw the video inside
+    ctx.save();
+    ctx.clip();
+    ctx.drawImage(video, xOffset, yOffset, newWidth, newHeight);
+    ctx.restore();
+
+    // Draw the smoothed corners for the detected dog
+    if (smoothedBox.valid) {
+      const cornerLength = 20; // Length of each corner line (adjust as needed)
+      ctx.beginPath();
+      drawCorners(
+        ctx,
+        smoothedBox.x,
+        smoothedBox.y,
+        smoothedBox.w,
+        smoothedBox.h,
+        cornerLength,
+      );
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    // Draw preloaded watermarks (if desired)
+    ctx.globalAlpha = 0.5;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 5;
+    ctx.drawImage(dogWatermarkImg, 8, 8, 64, 64);
+    ctx.drawImage(pn1WatermarkImg, 80, 13, 108, 54);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
+
+    requestAnimationFrame(drawCanvasFrame);
+  }
+
+  function drawCorners(ctx, x, y, w, h, cornerLen) {
+    // Top-left corner
+    ctx.moveTo(x, y + cornerLen);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + cornerLen, y);
+
+    // Top-right corner
+    ctx.moveTo(x + w - cornerLen, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + cornerLen);
+
+    // Bottom-left corner
+    ctx.moveTo(x, y + h - cornerLen);
+    ctx.lineTo(x, y + h);
+    ctx.lineTo(x + cornerLen, y + h);
+
+    // Bottom-right corner
+    ctx.moveTo(x + w - cornerLen, y + h);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w, y + h - cornerLen);
+  }
+
   function displaySavedVideos() {
     savedVideosContainer.innerHTML = '';
+
     if (savedVideos.length === 0) {
       savedVideosContainer.innerHTML = `
         <br>
@@ -359,11 +481,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function handleTouchStart(event) {
     const buttonId = event.currentTarget.id;
     if (buttonId === 'recordBeginBtn') {
-      console.log('Touch start: Record button pressed');
       isLongPress = true;
       setTimeout(() => {
         if (isLongPress && !isRecording) {
-          console.log('Starting recording');
           recordedChunks = [];
           mediaRecorder.start();
           isRecording = true;
@@ -372,17 +492,15 @@ document.addEventListener('DOMContentLoaded', () => {
           recordBeginBtn.style.backgroundColor = '#CC5500';
           recordBeginBtn.style.animation = 'pulse 1s infinite';
         }
-      }, 300); // Adjust the delay as needed
+      }, 75);
     }
   }
 
   function handleTouchEnd(event) {
     const buttonId = event.currentTarget.id;
     if (buttonId === 'recordBeginBtn') {
-      console.log('Touch end: Record button released');
       isLongPress = false;
       if (isRecording) {
-        console.log('Stopping recording');
         mediaRecorder.stop();
         isRecording = false;
         recordBeginBtn.innerHTML =
@@ -397,25 +515,21 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModalBtn.addEventListener('click', () => {
       infoModal.classList.add('hidden');
     });
-
   if (closeTweakModalBtn)
     closeTweakModalBtn.addEventListener('click', () => {
       tweakModal.classList.add('hidden');
     });
-
   if (closeSavedModalBtn)
     closeSavedModalBtn.addEventListener('click', () => {
       savedModal.classList.add('hidden');
     });
-
   if (closeSigninModalBtn)
     closeSigninModalBtn.addEventListener('click', () => {
       signinModal.classList.add('hidden');
     });
 
-  // Initialize the camera feed once the page loads.
+  // Initialize camera feed and persistent storage
   setupCamera();
-
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().then((granted) => {
       console.log('Persistent storage granted:', granted);
@@ -425,7 +539,6 @@ document.addEventListener('DOMContentLoaded', () => {
   openDatabase()
     .then(() => {
       loadVideosFromDB((records) => {
-        // Save an array of objects with id and url.
         savedVideos = records.map((record) => ({
           id: record.id,
           url: URL.createObjectURL(record.blob),
@@ -435,7 +548,6 @@ document.addEventListener('DOMContentLoaded', () => {
     })
     .catch((err) => console.error('IndexedDB error:', err));
 
-  // Handle file drop for video upload
   if (dropzoneFile) {
     dropzoneFile.addEventListener('change', handleFileUpload);
   }
@@ -448,23 +560,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const videoBlob = new Blob([e.target.result], { type: file.type });
         const videoUrl = URL.createObjectURL(videoBlob);
         savedVideos.push(videoUrl);
-        saveVideoToDB(videoBlob, videoUrl); // Save the new video to IndexedDB
+        saveVideoToDB(videoBlob, videoUrl);
         displaySavedVideos();
       };
       reader.readAsArrayBuffer(file);
     }
   }
 
-  // Handle the install prompt for Android
+  // Android install prompt handling remains unchanged.
   let deferredPrompt;
   const installButton = document.getElementById('installBtn');
-
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
     if (installButton) {
       installButton.style.display = 'block';
-
       installButton.addEventListener('click', () => {
         installButton.style.display = 'none';
         deferredPrompt.prompt();
