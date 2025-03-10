@@ -2,9 +2,12 @@
   "name": "PN1 - AI Dog Translator",
   "short_name": "PN1",
   "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#93C575",
+  "description": "An AI-powered translator designed to help you understand your pet’s language.",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "icons/android/android-launchericon-512-512.png",

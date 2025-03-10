@@ -5,12 +5,12 @@ if ('serviceWorker' in navigator) {
       .register('/js/service-worker.js')
       .then((registration) => {
         console.log(
-          'ServiceWorker registration successful with scope: ',
+          'ServiceWorker registration successful with scope:',
           registration.scope,
         );
       })
       .catch((error) => {
-        console.log('ServiceWorker registration failed: ', error);
+        console.log('ServiceWorker registration failed:', error);
       });
   });
 }
@@ -41,34 +41,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedVideosContainer = document.getElementById('savedVideosContainer');
   const dropzoneFile = document.getElementById('videoUpload');
 
-  // Flags, storage, and globals
+  const modeToggle = document.getElementById('modeToggle');
+  const funModeSettings = document.getElementById('funModeSettings');
+  const sciModeSettings = document.getElementById('sciModeSettings');
+
+  // Flags and globals
   let cameraInitialized = false;
   let mediaRecorder;
   let recordedChunks = [];
   let savedVideos = [];
   let isRecording = false;
-  let isLongPress = false;
-  let model;
-  let cachedDetections = []; // Global variable to store detection results
+  // Global smoothed bounding box state
+  let smoothedBox = { x: 0, y: 0, w: 0, h: 0, valid: false };
 
-  // Preload watermark images once and reuse them later.
+  // Simple linear interpolation function
+  function lerp(start, end, t) {
+    return start + t * (end - start);
+  }
+
+  // Preload watermark images
   const dogWatermarkImg = new Image();
   const pn1WatermarkImg = new Image();
   dogWatermarkImg.src = 'icons/watermark.dog.svg';
   pn1WatermarkImg.src = 'icons/watermark.PN1.svg';
 
-  // Wait for watermark images to load before proceeding.
-  Promise.all([
-    new Promise((resolve) => {
-      dogWatermarkImg.onload = resolve;
-    }),
-    new Promise((resolve) => {
-      pn1WatermarkImg.onload = resolve;
-    }),
-  ]).then(() => {
-    // Now start the camera (and later the model will be loaded)
-    setupCamera();
-  });
+  // Start the camera as soon as possible (without waiting for watermarks)
+  setupCamera();
 
   /**
    * Sets up the camera stream.
@@ -107,138 +105,84 @@ document.addEventListener('DOMContentLoaded', () => {
         tapToRecordText.classList.add('opacity-0');
       }, 3000);
 
-      const backgroundCanvas = document.createElement('canvas');
-      backgroundCanvas.width = video.videoWidth;
-      backgroundCanvas.height = video.videoHeight;
-      backgroundCanvas.style.position = 'absolute';
-      backgroundCanvas.style.top = '0';
-      backgroundCanvas.style.left = '0';
-      backgroundCanvas.style.width = '100%';
-      backgroundCanvas.style.height = '100%';
-      backgroundCanvas.style.zIndex = '-1';
-
-      document.body.appendChild(backgroundCanvas);
-
-      const bgCtx = backgroundCanvas.getContext('2d');
+      // Set canvas dimensions based on video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true;
 
-      // Load ML model, NOTE: Consider replacing cocoSsd.load() with a lighter model if available.
-      cocoSsd.load().then((loadedModel) => {
-        model = loadedModel;
-        // Start the detection loop (running every 75ms)
-        setInterval(updateDetections, 75);
-        // Start the rendering loop
-        requestAnimationFrame(drawCanvasFrame);
-      });
-
-      // Set up media recorder on the canvas stream.
-      const canvasStream = canvas.captureStream(75);
-      mediaRecorder = new MediaRecorder(canvasStream, {
-        mimeType: 'video/mp4',
-      });
-      mediaRecorder.ondataavailable = function (event) {
-        if (event.data.size > 0) {
-          recordedChunks.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = function () {
-        const blob = new Blob(recordedChunks, { type: 'video/mp4' });
-        const url = URL.createObjectURL(blob);
-        saveVideoToDB(blob, url);
-        loadVideosFromDB((records) => {
-          savedVideos = records.map((record) => ({
-            id: record.id,
-            url: URL.createObjectURL(record.blob),
-          }));
-          displaySavedVideos();
-        });
-        recordedChunks = [];
-      };
-      mediaRecorder.onerror = function (event) {
-        console.error('MediaRecorder error:', event.error);
-      };
-      mediaRecorder.onstart = function () {
-        console.log('Recording started.');
-      };
+      // Start the rendering loop immediately
+      requestAnimationFrame(drawCanvasFrame);
     };
   }
 
-  // Global smoothed bounding box state (initially invalid)
-  let smoothedBox = { x: 0, y: 0, w: 0, h: 0, valid: false };
+  // --- Worker-based Detection Setup ---
 
-  // Simple linear interpolation function
-  function lerp(start, end, t) {
-    return start + t * (end - start);
-  }
+  // Create and initialize the worker for TensorFlow detection.
+  const tfjsWorker = new Worker('tfjsWorker.js');
 
-  /**
-   * Periodically updates detection results.
-   */
-  async function updateDetections() {
-    if (model && video.readyState === video.HAVE_ENOUGH_DATA) {
-      try {
-        // Create an offscreen canvas at a lower resolution (e.g., 224x224)
-        const detectionCanvas = document.createElement('canvas');
-        const detectionWidth = 224;
-        const detectionHeight = 224;
-        detectionCanvas.width = detectionWidth;
-        detectionCanvas.height = detectionHeight;
-        const detectionCtx = detectionCanvas.getContext('2d');
+  tfjsWorker.onmessage = (e) => {
+    if (e.data.type === 'modelReady') {
+      console.log('Detection model loaded in worker.');
+      // The worker handles model loading, so you can now send frames for detection.
+    } else if (e.data.type === 'detectionResults') {
+      // Process results from the worker.
+      const predictions = e.data.predictions;
+      const detectionWidth = e.data.detectionWidth || 224;
+      const detectionHeight = e.data.detectionHeight || 224;
+      const scaleX = video.videoWidth / detectionWidth;
+      const scaleY = video.videoHeight / detectionHeight;
+      const dog = predictions.find((pred) => pred.class === 'dog');
+      if (dog) {
+        const [newX, newY, newW, newH] = dog.bbox;
+        const fullNewX = newX * scaleX;
+        const fullNewY = newY * scaleY;
+        const fullNewW = newW * scaleX;
+        const fullNewH = newH * scaleY;
+        const alpha = 0.4; // Smoothing factor
 
-        // Draw the current video frame scaled down to the offscreen canvas
-        detectionCtx.drawImage(video, 0, 0, detectionWidth, detectionHeight);
-
-        // Run detection on the lower-resolution canvas
-        const predictions = await model.detect(detectionCanvas);
-
-        // Calculate scaling factors to map detection coordinates back to full video dimensions
-        const scaleX = video.videoWidth / detectionWidth;
-        const scaleY = video.videoHeight / detectionHeight;
-
-        // Find a dog detection (assuming one is present)
-        const dog = predictions.find((pred) => pred.class === 'dog');
-        if (dog) {
-          // Extract the detection bounding box and scale it
-          const [newX, newY, newW, newH] = dog.bbox;
-          const fullNewX = newX * scaleX;
-          const fullNewY = newY * scaleY;
-          const fullNewW = newW * scaleX;
-          const fullNewH = newH * scaleY;
-
-          const alpha = 0.4; // Smoothing factor; adjust for faster/slower gliding
-
-          if (!smoothedBox.valid) {
-            // Initialize smoothedBox on the first detection
-            smoothedBox = {
-              x: fullNewX,
-              y: fullNewY,
-              w: fullNewW,
-              h: fullNewH,
-              valid: true,
-            };
-          } else {
-            // Smoothly interpolate towards the new detection coordinates
-            smoothedBox.x = lerp(smoothedBox.x, fullNewX, alpha);
-            smoothedBox.y = lerp(smoothedBox.y, fullNewY, alpha);
-            smoothedBox.w = lerp(smoothedBox.w, fullNewW, alpha);
-            smoothedBox.h = lerp(smoothedBox.h, fullNewH, alpha);
-          }
+        if (!smoothedBox.valid) {
+          smoothedBox = {
+            x: fullNewX,
+            y: fullNewY,
+            w: fullNewW,
+            h: fullNewH,
+            valid: true,
+          };
         } else {
-          smoothedBox.valid = false;
+          smoothedBox.x = lerp(smoothedBox.x, fullNewX, alpha);
+          smoothedBox.y = lerp(smoothedBox.y, fullNewY, alpha);
+          smoothedBox.w = lerp(smoothedBox.w, fullNewW, alpha);
+          smoothedBox.h = lerp(smoothedBox.h, fullNewH, alpha);
         }
-      } catch (error) {
-        console.error('Error during detection:', error);
+      } else {
+        smoothedBox.valid = false;
+      }
+    }
+  };
+
+  // Use a single updateDetections function that sends frames to the worker.
+  async function updateDetections() {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (canvas.transferControlToOffscreen) {
+        const offscreen = canvas.transferControlToOffscreen();
+        tfjsWorker.postMessage({ type: 'detect', canvas: offscreen }, [
+          offscreen,
+        ]);
+      } else {
+        const bitmap = await createImageBitmap(video);
+        tfjsWorker.postMessage({
+          type: 'detect',
+          bitmap,
+          detectionWidth: 224,
+          detectionHeight: 224,
+        });
       }
     }
   }
 
-  /**
-   * Render loop: draws video, overlays detections, and paints watermarks.
-   */
+  // Throttle detection calls to run every 100ms.
+  setInterval(updateDetections, 100);
+
+  // --- Rendering Loop ---
   function drawCanvasFrame() {
     if (!video.videoWidth || !video.videoHeight) {
       requestAnimationFrame(drawCanvasFrame);
@@ -246,10 +190,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const ctx = canvas.getContext('2d');
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const margin = 1.25; // Adjust margin as needed
+    // Example: draw video centered in canvas
+    const margin = 1.25;
     const borderThickness = 2.5;
     const borderRadius = 5;
     const scale = Math.min(
@@ -299,9 +243,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.drawImage(video, xOffset, yOffset, newWidth, newHeight);
     ctx.restore();
 
-    // Draw the smoothed corners for the detected dog
+    // Draw detection overlay if available
     if (smoothedBox.valid) {
-      const cornerLength = 20; // Length of each corner line (adjust as needed)
+      const cornerLength = 20;
       ctx.beginPath();
       drawCorners(
         ctx,
@@ -316,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.stroke();
     }
 
-    // Draw preloaded watermarks (if desired)
+    // Draw preloaded watermarks
     ctx.globalAlpha = 0.5;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
     ctx.shadowBlur = 5;
@@ -333,17 +277,14 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.moveTo(x, y + cornerLen);
     ctx.lineTo(x, y);
     ctx.lineTo(x + cornerLen, y);
-
     // Top-right corner
     ctx.moveTo(x + w - cornerLen, y);
     ctx.lineTo(x + w, y);
     ctx.lineTo(x + w, y + cornerLen);
-
     // Bottom-left corner
     ctx.moveTo(x, y + h - cornerLen);
     ctx.lineTo(x, y + h);
     ctx.lineTo(x + cornerLen, y + h);
-
     // Bottom-right corner
     ctx.moveTo(x + w - cornerLen, y + h);
     ctx.lineTo(x + w, y + h);
@@ -480,34 +421,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleTouchStart(event) {
     const buttonId = event.currentTarget.id;
-    if (buttonId === 'recordBeginBtn') {
-      isLongPress = true;
-      setTimeout(() => {
-        if (isLongPress && !isRecording) {
-          recordedChunks = [];
-          mediaRecorder.start();
-          isRecording = true;
-          recordBeginBtn.innerHTML =
-            '<img src="icons/recordStopBtn.svg" alt="Stop" class="w-1/2 h-1/2 relative">';
-          recordBeginBtn.style.backgroundColor = '#CC5500';
-          recordBeginBtn.style.animation = 'pulse 1s infinite';
-        }
-      }, 75);
+    if (buttonId === 'recordBeginBtn' && !isRecording) {
+      recordedChunks = [];
+      mediaRecorder.start();
+      isRecording = true;
+      recordBeginBtn.innerHTML =
+        '<img src="icons/recordStopBtn.svg" alt="Stop" class="w-1/2 h-1/2 relative">';
+      recordBeginBtn.style.backgroundColor = '#CC5500';
+      recordBeginBtn.style.animation = 'pulse 1s infinite';
     }
   }
 
   function handleTouchEnd(event) {
     const buttonId = event.currentTarget.id;
-    if (buttonId === 'recordBeginBtn') {
-      isLongPress = false;
-      if (isRecording) {
-        mediaRecorder.stop();
-        isRecording = false;
-        recordBeginBtn.innerHTML =
-          '<img src="icons/recordBeginBtn.svg" alt="Record" class="w-1/2 h-1/2 relative">';
-        recordBeginBtn.style.backgroundColor = '#93C575';
-        recordBeginBtn.style.animation = 'none';
-      }
+    if (buttonId === 'recordBeginBtn' && isRecording) {
+      mediaRecorder.stop();
+      isRecording = false;
+      recordBeginBtn.innerHTML =
+        '<img src="icons/recordBeginBtn.svg" alt="Record" class="w-1/2 h-1/2 relative">';
+      recordBeginBtn.style.backgroundColor = '#93C575';
+      recordBeginBtn.style.animation = 'none';
     }
   }
 
@@ -530,6 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize camera feed and persistent storage
   setupCamera();
+
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().then((granted) => {
       console.log('Persistent storage granted:', granted);
@@ -566,6 +500,31 @@ document.addEventListener('DOMContentLoaded', () => {
       reader.readAsArrayBuffer(file);
     }
   }
+
+  // Load the saved mode from local storage or set a default
+  const savedMode = localStorage.getItem('appMode') || 'FunMode';
+  if (savedMode === 'FunMode') {
+    modeToggle.checked = false;
+    funModeSettings.classList.remove('hidden');
+    sciModeSettings.classList.add('hidden');
+  } else {
+    modeToggle.checked = true;
+    sciModeSettings.classList.remove('hidden');
+    funModeSettings.classList.add('hidden');
+  }
+
+  // Add event listener to the toggle switch
+  modeToggle.addEventListener('change', () => {
+    if (modeToggle.checked) {
+      localStorage.setItem('appMode', 'SciMode');
+      sciModeSettings.classList.remove('hidden');
+      funModeSettings.classList.add('hidden');
+    } else {
+      localStorage.setItem('appMode', 'FunMode');
+      funModeSettings.classList.remove('hidden');
+      sciModeSettings.classList.add('hidden');
+    }
+  });
 
   // Android install prompt handling remains unchanged.
   let deferredPrompt;
