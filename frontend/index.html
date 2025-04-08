@@ -7,7 +7,6 @@
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
     />
-    <meta name="theme-color" content="#93C575" />
     <link rel="icon" href="icons/ios/128.png" type="image/x-icon" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/ios/180.png" />
     <link rel="apple-touch-icon" sizes="120x120" href="/icons/ios/120.png" />
@@ -17,27 +16,13 @@
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="manifest" href="manifest.json" />
 
-    <!-- Defer scripts to improve performance -->
     <script src="js/tailwindcss.3415.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs" defer></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"
-      defer
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"
-      defer
-    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   </head>
-
   <body
-    class="h-screen w-screen flex flex-col items-center justify-center bg-transparent opacity-0 transition-opacity duration-700"
+    class="h-screen w-screen flex flex-col items-center justify-center bg-transparent"
   >
-    <script>
-      window.addEventListener('load', () => {
-        document.body.classList.remove('opacity-0');
-      });
-    </script>
     <img
       src="icons/watermark.dog.svg"
       alt="Watermark"
@@ -68,7 +53,6 @@
       <!-- Info/Help Button -->
       <button
         id="infoBtn"
-        aria-label="Open Info"
         class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
       >
         <img src="icons/infoBtn.svg" alt="Info" class="w-1/2 h-1/2" />
@@ -76,7 +60,6 @@
       <!-- Tweak Button -->
       <button
         id="tweakBtn"
-        aria-label="Open Settings"
         class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
       >
         <img src="icons/tweakBtn.svg" alt="Settings" class="w-1/2 h-1/2" />
@@ -93,7 +76,6 @@
         <!-- Record Button -->
         <button
           id="recordBeginBtn"
-          aria-label="Start Recording"
           class="w-[18vw] h-[18vw] max-w-24 max-h-24 min-w-16 min-h-16 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition relative"
         >
           <div
@@ -109,7 +91,6 @@
       <!-- Saved Button -->
       <button
         id="savedBtn"
-        aria-label="View Saved Videos"
         class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
       >
         <img src="icons/savedBtn.svg" alt="Saved" class="w-1/2 h-1/2" />
@@ -117,7 +98,6 @@
       <!-- SignIn Button -->
       <button
         id="signinBtn"
-        aria-label="Sign In"
         class="w-[12vw] h-[12vw] max-w-20 max-h-20 min-w-14 min-h-14 flex items-center justify-center rounded-full bg-[#93C575] text-white shadow-lg hover:bg-[#7FAF5A] transition"
       >
         <img src="icons/loginBtn.svg" alt="Sign In" class="w-1/2 h-1/2" />
@@ -127,8 +107,6 @@
     <!-- Info Modal -->
     <div
       id="infoModal"
-      role="dialog"
-      aria-modal="true"
       class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
     >
       <div
@@ -188,7 +166,6 @@
         </div>
         <button
           id="closeModal"
-          aria-label="Close Info Modal"
           class="block mx-auto px-4 py-2 bg-white text-[#93C575] border border-[#93C575] rounded-full hover:bg-[#93C575] hover:text-white"
         >
           I understand
@@ -211,8 +188,6 @@
     <!-- Tweak Modal -->
     <div
       id="tweakModal"
-      role="dialog"
-      aria-modal="true"
       class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
     >
       <div
@@ -220,84 +195,20 @@
       >
         <button
           id="closeTweakModal"
-          aria-label="Close Settings"
           class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
         >
           &#x2715;
         </button>
         <h2 class="text-2xl font-bold mb-2 text-center">Settings</h2>
-        <div class="flex justify-center items-center space-x-4 mb-4">
-          <span class="text-sm">Fun Mode</span>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" id="modeToggle" class="sr-only peer" />
-            <div
-              class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#93C57599] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#93C575]"
-            ></div>
-          </label>
-          <span class="text-sm">Sci Mode</span>
-        </div>
-        <hr
-          class="w-[60%] h-1 mx-auto bg-gray-100 border-0 rounded-sm md:my-10"
-        />
-        <div id="funModeSettings" class="mt-4">
-          <!-- Settings specific to Fun Mode -->
-          <h3 class="text-lg font-semibold mb-2">Fun Mode Controls</h3>
-        </div>
-        <div id="sciModeSettings" class="overflow-y-scroll mt-4 hidden">
-          <!-- Settings specific to Sci Mode -->
-
-          <h3 class="text-lg font-semibold mb-2">Sci Mode Controls</h3>
-
-          <!-- Toggle for Emotion Chart -->
-          <label class="flex items-center space-x-2 mb-3">
-            <input
-              type="checkbox"
-              id="toggleNightingaleChart"
-              class="w-5 h-5"
-            />
-            <span class="text-sm">Enable Emotion Chart</span>
-          </label>
-
-          <!-- Data Weighting Slider -->
-          <div class="mb-3">
-            <label class="text-sm block mb-1"
-              >Audio vs. Video Contribution</label
-            >
-            <input
-              type="range"
-              id="dataWeightSlider"
-              min="0"
-              max="100"
-              value="20"
-              class="w-full accent-[#93C575]"
-            />
-            <p class="text-xs text-gray-600 mt-1">
-              <span id="dataWeightLabel">20</span>% Audio /
-              <span id="videoWeightLabel">80</span>% Video
-            </p>
-          </div>
-
-          <!-- Sensitivity Level -->
-          <div class="mb-3">
-            <label class="text-sm block mb-1">Detection Sensitivity</label>
-            <select id="sensitivityLevel" class="w-full p-2 border rounded">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-
-          <!-- Chart Container -->
-          <div id="chartContainer" class="w-full h-[24rem] hidden mt-4"></div>
-        </div>
+        <p class="mb-4 text-xs text-gray-600">
+          Adjust app settings to customize your experience.
+        </p>
       </div>
     </div>
 
     <!-- Saved Modal -->
     <div
       id="savedModal"
-      role="dialog"
-      aria-modal="true"
       class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
     >
       <div
@@ -305,7 +216,6 @@
       >
         <button
           id="closeSavedModal"
-          aria-label="Close Saved Videos"
           class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
         >
           &#x2715;
@@ -323,8 +233,6 @@
     <!-- SignIn Modal -->
     <div
       id="signinModal"
-      role="dialog"
-      aria-modal="true"
       class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50"
     >
       <div
@@ -332,7 +240,6 @@
       >
         <button
           id="closeSigninModal"
-          aria-label="Close Sign In Modal"
           class="absolute top-2 right-2 flex items-center text-xl justify-center w-8 h-8 bg-[#93C575] text-white rounded-full hover:bg-[#7FAF5A] transition z-10"
         >
           &#x2715;
@@ -351,17 +258,15 @@
         autoplay
         muted
         playsinline
-        style="filter: blur(21px)"
       ></video>
       <canvas
         id="canvas"
-        class="absolute top-4 left-4 p-[2.5px] w-[calc(100%-2rem)] h-[calc(100%-2rem)]"
+        class="absolute top-0 left-0 w-full h-full"
         style="pointer-events: none; z-index: 10"
       ></canvas>
     </div>
 
-    <script src="js/chart.js" defer></script>
-    <script src="js/indexedDB.js" defer></script>
-    <script src="js/main.js" defer></script>
+    <script src="js/indexedDB.js"></script>
+    <script src="js/main.js"></script>
   </body>
 </html>
