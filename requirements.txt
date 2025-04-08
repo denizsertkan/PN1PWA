@@ -1,0 +1,6 @@
+sanic>=23.12
+tensorflow>=2.11.0
+numpy
+opencv-python-headless  # Lighter than opencv-python, no GUI deps
+librosa
+ffmpeg-python

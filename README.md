@@ -40,3 +40,4 @@ Scan the QR code below to access the PWA:
    ```bash
    git clone github.com/AbuRadi42/PN1PWA
    cd PN1PWA
+   ```
