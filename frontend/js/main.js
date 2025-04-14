@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let cameraInitialized = false;
   let mediaRecorder;
   let recordedChunks = [];
-  let savedVideos = [];
+  let savedVideos = []; // local array of { id, url }
   let isRecording = false;
 
   let model;
@@ -108,16 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
           if (e.data.size > 0) recordedChunks.push(e.data);
         };
         mediaRecorder.onstop = () => {
+          // Once user stops recording, we produce a final blob
           const blob = new Blob(recordedChunks, { type: 'video/mp4' });
           const videoURL = URL.createObjectURL(blob);
-          // Add to local DB & UI
-          const newVidObj = { id: Date.now(), url: videoURL, uploading: false };
-          savedVideos.push(newVidObj);
-          saveVideoToDB(blob, videoURL);
-          displaySavedVideos();
 
-          // Immediately upload to /analyze
-          sendVideoWithProgress(blob);
+          // Immediately upload to /analyze, handle progress + server response
+          sendVideoWithProgress(blob, videoURL);
+
+          // Clear recordedChunks for next time
           recordedChunks = [];
         };
 
@@ -151,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function drawOverlayLoop() {
     const overlayCtx = overlayCanvas.getContext('2d');
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    // Slight alpha for background
+
     overlayCtx.globalAlpha = 0.2;
     overlayCtx.drawImage(
       video,
@@ -219,14 +217,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /**
-   * sendVideoWithProgress: immediately sends the video to /analyze with a progress bar.
+   * sendVideoWithProgress: uploads the video to /analyze with a progress bar,
+   * then uses the server's response to store in IndexedDB with the same ID.
    */
-  function sendVideoWithProgress(videoBlob) {
+  function sendVideoWithProgress(videoBlob, videoURL) {
     const formData = new FormData();
     formData.append('video', videoBlob, 'recording.mp4');
 
     // Create a tile in "Saved Videos" for this video
-    // and a progress bar <div> inside it
+    // with a progress bar
     const tile = document.createElement('div');
     tile.className = 'flex items-center border p-2 rounded mb-4';
 
@@ -254,8 +253,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     xhr.onload = () => {
-      progressBar.style.width = '100%';
-      console.log('Upload complete, server responded with:', xhr.status);
+      if (xhr.status === 200) {
+        // Server returns JSON with { upload_id, ... }
+        try {
+          const res = JSON.parse(xhr.responseText);
+          const serverId = res.upload_id;
+          const timestamp = res.timestamp;
+          // Now store in local array and IndexedDB, using serverId as the key
+          savedVideos.push({ id: serverId, url: videoURL });
+          saveVideoToDB(videoBlob, videoURL, serverId, timestamp);
+          displaySavedVideos();
+        } catch (err) {
+          console.error('Could not parse server response:', err);
+        }
+      } else {
+        console.error('Upload failed with status', xhr.status);
+        progressBar.style.backgroundColor = 'red';
+      }
     };
 
     xhr.onerror = () => {
@@ -316,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(() => {
       loadVideosFromDB((records) => {
         savedVideos = records.map((r) => ({
-          id: r.id,
+          id: r.id, // The server's ID
           url: URL.createObjectURL(r.blob),
         }));
         displaySavedVideos();
@@ -328,32 +342,33 @@ document.addEventListener('DOMContentLoaded', () => {
     savedVideosContainer.innerHTML = '';
     if (!savedVideos.length) {
       savedVideosContainer.innerHTML = `
-        <br>
-        <div class="flex items-center justify-center w-full">
-          <label for="videoUpload"
-            class="flex flex-col items-center justify-center w-full h-[calc(100% - 20vh)]
-            border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-            <div class="flex flex-col items-center justify-center pt-5 pb-6 w-full h-full">
-              <svg class="w-8 h-8 mb-4 text-gray-500" aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
-                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                  stroke-width="1.5"
-                  d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5
-                     5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5
-                     a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
-              </svg>
-              <p>Click to upload</p>
-            </div>
-            <input id="videoUpload" type="file" class="hidden" />
-          </label>
-        </div>
-        <br>
-        <p>No saved videos yet.</p>
-      `;
+          <br>
+          <div class="flex items-center justify-center w-full">
+            <label for="videoUpload"
+              class="flex flex-col items-center justify-center w-full h-[calc(100% - 20vh)]
+              border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+              <div class="flex flex-col items-center justify-center pt-5 pb-6 w-full h-full">
+                <svg class="w-8 h-8 mb-4 text-gray-500" aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                  <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5
+                       5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5
+                       a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                </svg>
+                <p>Click to upload</p>
+              </div>
+              <input id="videoUpload" type="file" class="hidden" />
+            </label>
+          </div>
+          <br>
+          <p>No saved videos yet.</p>
+        `;
       return;
     }
 
-    savedVideos.forEach(({ id, url }) => {
+    // For each saved video
+    savedVideos.forEach(({ id, url, created }) => {
       const wrapper = document.createElement('div');
       wrapper.className =
         'flex items-center justify-between mb-4 p-2 border rounded';
@@ -365,7 +380,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const title = document.createElement('span');
       title.className = 'flex-1 ml-4 text-sm';
-      title.textContent = `Video - ${new Date(id).toLocaleString()}`;
+
+      // Format timestamp (created might be a numeric timestamp or full Date)
+      // If it's numeric (Unix), do:
+      const dt = created ? new Date(created) : new Date();
+      title.textContent = `Video from ${dt.toLocaleString()} (Id ${id})`;
 
       const playBtn = document.createElement('button');
       playBtn.innerHTML =
@@ -385,9 +404,30 @@ document.addEventListener('DOMContentLoaded', () => {
       deleteBtn.innerHTML =
         '<img src="icons/removeItemBtn.svg" alt="Delete" class="w-8 h-8 mr-4">';
       deleteBtn.addEventListener('click', () => {
+        // Remove from local array
         savedVideos = savedVideos.filter((v) => v.id !== id);
+        // Delete from IndexedDB
         deleteVideoFromDB(id);
+        // Update UI
         displaySavedVideos();
+
+        // Now request the back-end to remove the entire folder
+        fetch('/delete_video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_id: id.toString() }),
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error('Server delete failed');
+            return res.json();
+          })
+          .then((data) => {
+            console.log('Deleted on server too:', data);
+          })
+          .catch((err) => {
+            console.error('Error deleting on server:', err);
+            // Optionally revert local deletion or show a message
+          });
       });
 
       wrapper.append(thumbnail, title, playBtn, deleteBtn);
@@ -395,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // File upload for videos
+  // File upload for manual uploads
   if (dropzoneFile) {
     dropzoneFile.addEventListener('change', (event) => {
       const file = event.target.files[0];
@@ -404,9 +444,11 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.onload = function (e) {
           const videoBlob = new Blob([e.target.result], { type: file.type });
           const videoUrl = URL.createObjectURL(videoBlob);
-          savedVideos.push({ id: Date.now(), url: videoUrl });
-          saveVideoToDB(videoBlob, videoUrl);
-          displaySavedVideos();
+
+          // For manual uploads, you might want to also do the same 'upload to server'
+          // or simply store locally if you want.
+          // Example:
+          sendVideoWithProgress(videoBlob, videoUrl);
         };
         reader.readAsArrayBuffer(file);
       }

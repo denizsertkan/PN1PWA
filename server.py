@@ -1,6 +1,7 @@
 from sanic import Sanic, response
 from sanic.request import File
 from sanic.log import logger  # use Sanic's built-in logger
+from datetime import datetime
 import os
 import uuid
 import asyncio
@@ -47,33 +48,6 @@ app.static("/uploads", "./uploads", name="uploads_static")
 async def serve_frontend(request):
     """Serve index.html at the root."""
     return await response.file("./frontend/index.html")
-
-
-@app.get("/view/<upload_id>")
-async def view_upload(request, upload_id):
-    """
-    Serve view.html for a given upload_id, or list available if combo_analysis.json not found.
-    """
-    combo_path = os.path.join(UPLOADS_DIR, upload_id, "combo_analysis.json")
-
-    if not os.path.exists(combo_path):
-        # List available uploads that do have combo_analysis.json
-        available_ids = [
-            d
-            for d in os.listdir(UPLOADS_DIR)
-            if os.path.isfile(os.path.join(UPLOADS_DIR, d, "combo_analysis.json"))
-        ]
-        html_content = (
-            f"<h1>Upload ID '{upload_id}' not found!</h1>"
-            "<p>Available uploads:</p><ul>"
-            + "".join(
-                [f'<li><a href="/view/{uid}">{uid}</a></li>' for uid in available_ids]
-            )
-            + "</ul>"
-        )
-        return response.html(html_content, status=404)
-
-    return await response.file("./frontend/view.html")
 
 
 def preprocess_audio(audio_path: str) -> np.ndarray:
@@ -142,7 +116,7 @@ async def analyze(request):
     if not video_file:
         return response.json({"error": "No video uploaded."}, status=400)
 
-    upload_id = str(uuid.uuid4())
+    upload_id = str(uuid.uuid4())[:8]
     upload_dir = os.path.join(UPLOADS_DIR, upload_id)
     os.makedirs(upload_dir, exist_ok=True)
 
@@ -193,10 +167,13 @@ async def analyze(request):
 
     logger.info(f"Analysis complete for upload_id: {upload_id}")
 
+    timestamp = datetime.now().isoformat()
+
     return response.json(
         {
             "status": "success",
             "upload_id": upload_id,
+            "timestamp": timestamp,
             "paths": {
                 "video": f"/uploads/{upload_id}/video.mp4",
                 "frames_dir": f"/uploads/{upload_id}/frames/",
@@ -207,5 +184,56 @@ async def analyze(request):
     )
 
 
+@app.get("/view/<upload_id>")
+async def view_upload(request, upload_id):
+    """
+    Serve view.html for a given upload_id, or list available if combo_analysis.json not found.
+    """
+    combo_path = os.path.join(UPLOADS_DIR, upload_id, "combo_analysis.json")
+
+    if not os.path.exists(combo_path):
+        # List available uploads that do have combo_analysis.json
+        available_ids = [
+            d
+            for d in os.listdir(UPLOADS_DIR)
+            if os.path.isfile(os.path.join(UPLOADS_DIR, d, "combo_analysis.json"))
+        ]
+        html_content = (
+            f"<h1>Upload ID '{upload_id}' not found!</h1>"
+            "<p>Available uploads:</p><ul>"
+            + "".join(
+                [f'<li><a href="/view/{uid}">{uid}</a></li>' for uid in available_ids]
+            )
+            + "</ul>"
+        )
+        return response.html(html_content, status=404)
+
+    return await response.file("./frontend/view.html")
+
+
+@app.post("/delete_video")
+async def delete_video(request):
+    """
+    Deletes the upload folder from /uploads/<upload_id>.
+    Expects a JSON body like { "upload_id": "<your_id>" }.
+    """
+    data = request.json
+    if not data or "upload_id" not in data:
+        return response.json({"error": "No upload_id provided."}, status=400)
+
+    upload_id = data["upload_id"]
+    target_dir = os.path.join(UPLOADS_DIR, upload_id)
+    if not os.path.exists(target_dir):
+        return response.json({"error": "Upload not found."}, status=404)
+
+    # WARNING: This removes the entire folder and all files inside.
+    # Make sure this is exactly what you want.
+    import shutil
+
+    shutil.rmtree(target_dir)
+
+    return response.json({"status": "deleted", "upload_id": upload_id})
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=4200, debug=True)
+    app.run(host="0.0.0.0", port=4200, debug=True, single_process=True)
