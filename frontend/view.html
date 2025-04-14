@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PN1 - Recording Analysis</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+  </head>
+
+  <body class="bg-white text-gray-800 p-4">
+    <h1 class="text-2xl font-bold mb-4">Recording Analysis</h1>
+
+    <!-- Video Player -->
+    <div id="videoContainer" class="mb-6">
+      <video id="videoPlayer" class="w-full max-w-3xl mx-auto" controls></video>
+    </div>
+
+    <!-- Download Links -->
+    <div class="mt-6">
+      <h2 class="text-lg font-semibold mb-2">Download Raw Data</h2>
+      <div class="flex flex-wrap gap-2">
+        <a id="downloadVideo" class="underline text-blue-600" download
+          >Download Video</a
+        >
+        <a id="downloadAudio" class="underline text-blue-600" download
+          >Download Audio</a
+        >
+        <a id="downloadCombo" class="underline text-blue-600" download
+          >Download Combo JSON</a
+        >
+      </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="my-6 space-y-12">
+      <!-- Pose Chart -->
+      <div>
+        <h2 class="text-lg font-semibold mb-2">Pose Estimations</h2>
+        <div
+          id="poseChart"
+          class="border border-gray-200 rounded shadow"
+          style="width: 100%; height: 400px"
+        ></div>
+      </div>
+
+      <!-- Micro-Interaction Chart -->
+      <div>
+        <h2 class="text-lg font-semibold mb-2">Micro-Interactions</h2>
+        <div
+          id="microChart"
+          class="border border-gray-200 rounded shadow"
+          style="width: 100%; height: 400px"
+        ></div>
+      </div>
+
+      <!-- Audio Classification Chart -->
+      <div>
+        <h2 class="text-lg font-semibold mb-2">Audio Classification</h2>
+        <div
+          id="audioChart"
+          class="border border-gray-200 rounded shadow"
+          style="width: 100%; height: 400px"
+        ></div>
+      </div>
+    </div>
+
+    <!-- Script to load data & render charts -->
+    <script>
+      // 1) Extract the upload_id from the URL path
+      //    e.g. /view/<upload_id> => id = <upload_id>
+      const id = window.location.pathname.split('/').pop();
+
+      // 2) Construct resource paths
+      const videoSrc = `/uploads/${id}/video.mp4`;
+      const audioSrc = `/uploads/${id}/audio.wav`;
+      const comboSrc = `/uploads/${id}/combo_analysis.json`;
+      const poseSrc = `/uploads/${id}/poses_analysis.json`;
+      const microSrc = `/uploads/${id}/micro_analysis.json`;
+      const audioAnalysisSrc = `/uploads/${id}/audio_analysis.json`;
+
+      // 3) Set up the video and download links
+      document.getElementById('videoPlayer').src = videoSrc;
+      document.getElementById('downloadVideo').href = videoSrc;
+      document.getElementById('downloadAudio').href = audioSrc;
+      document.getElementById('downloadCombo').href = comboSrc;
+
+      // 4) Fetch each analysis file and build the charts
+      Promise.all([
+        fetch(poseSrc).then((r) => r.json()),
+        fetch(microSrc).then((r) => r.json()),
+        fetch(audioAnalysisSrc).then((r) => r.json()),
+      ])
+        .then(([poseData, microData, audioData]) => {
+          renderLineChart('poseChart', poseData, 'Pose Analysis');
+          renderLineChart(
+            'microChart',
+            microData,
+            'Micro-Interaction Analysis',
+          );
+          renderLineChart('audioChart', audioData, 'Audio Analysis');
+        })
+        .catch((err) => {
+          console.error('Error loading analysis JSON:', err);
+        });
+
+      /**
+       * Reusable function to render a line chart in ECharts
+       * @param {string} containerId - The DOM id for the chart container
+       * @param {Array} data - Array of segment/timeline objects, e.g. [{ time: 0, Happy: 0.2, Sad: 0.3, ... }, ...]
+       * @param {string} title - Chart title
+       */
+      function renderLineChart(containerId, data, title) {
+        if (!data || !data.length) {
+          console.warn(`No data for ${title}, skipping chart render.`);
+          return;
+        }
+
+        const chartDom = document.getElementById(containerId);
+        const chart = echarts.init(chartDom);
+
+        // Identify the emotion keys (excluding 'time' if present)
+        const firstEntry = data[0];
+        const allKeys = Object.keys(firstEntry);
+        // Some data might have 'time' fields; we treat that as X-axis
+        const hasTime = allKeys.includes('time');
+        const emotionKeys = hasTime
+          ? allKeys.filter((k) => k !== 'time')
+          : allKeys;
+
+        // X-axis: if there's a "time" prop, use it; otherwise use the index
+        const xData = data.map((entry, idx) =>
+          hasTime ? entry.time : idx + 1,
+        );
+
+        // Build a line series for each emotion
+        const series = emotionKeys.map((emotion) => ({
+          name: emotion,
+          type: 'line',
+          data: data.map((entry) => {
+            const val = entry[emotion];
+            // If numeric, let's ensure 2 decimal places
+            return val && !isNaN(val) ? Number(val.toFixed(2)) : 0;
+          }),
+          smooth: true,
+        }));
+
+        // Render chart
+        chart.setOption({
+          title: {
+            text: title,
+            left: 'center',
+          },
+          tooltip: {
+            trigger: 'axis',
+          },
+          legend: {
+            data: emotionKeys,
+            top: 40, // so it doesn't overlap the title
+          },
+          grid: {
+            top: 80,
+            left: 60,
+            right: 20,
+            bottom: 40,
+          },
+          xAxis: {
+            type: 'category',
+            data: xData,
+            name: hasTime ? 'Time (s)' : 'Segment',
+          },
+          yAxis: {
+            type: 'value',
+            name: 'Intensity',
+          },
+          series: series,
+        });
+      }
+    </script>
+  </body>
+</html>
