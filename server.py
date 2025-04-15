@@ -1,6 +1,7 @@
 from sanic import Sanic, response
 from sanic.request import File
 from sanic.log import logger  # use Sanic's built-in logger
+from sanic.response import json as sanic_json
 from datetime import datetime
 import os
 import uuid
@@ -184,31 +185,25 @@ async def analyze(request):
     )
 
 
-@app.get("/view/<upload_id>")
-async def view_upload(request, upload_id):
-    """
-    Serve view.html for a given upload_id, or list available if combo_analysis.json not found.
-    """
-    combo_path = os.path.join(UPLOADS_DIR, upload_id, "combo_analysis.json")
+@app.get("/replay")
+async def replay_page(request):
+    """Serve the static replay.html page (upload_id will be selected via JS)."""
+    return await response.file("./frontend/replay.html")
 
-    if not os.path.exists(combo_path):
-        # List available uploads that do have combo_analysis.json
-        available_ids = [
-            d
-            for d in os.listdir(UPLOADS_DIR)
-            if os.path.isfile(os.path.join(UPLOADS_DIR, d, "combo_analysis.json"))
-        ]
-        html_content = (
-            f"<h1>Upload ID '{upload_id}' not found!</h1>"
-            "<p>Available uploads:</p><ul>"
-            + "".join(
-                [f'<li><a href="/view/{uid}">{uid}</a></li>' for uid in available_ids]
-            )
-            + "</ul>"
-        )
-        return response.html(html_content, status=404)
 
-    return await response.file("./frontend/view.html")
+@app.get("/uploads_index.json")
+async def list_uploaded_sessions(request):
+    entries = []
+    for upload_id in os.listdir(UPLOADS_DIR):
+        upload_path = os.path.join(UPLOADS_DIR, upload_id)
+        combo_path = os.path.join(upload_path, "combo_analysis.json")
+        video_path = os.path.join(upload_path, "video.mp4")
+        if os.path.isfile(combo_path) and os.path.isfile(video_path):
+            timestamp = os.path.getmtime(video_path)
+            entries.append({"id": upload_id, "timestamp": timestamp})
+
+    entries.sort(key=lambda x: x["timestamp"], reverse=True)
+    return sanic_json(entries)
 
 
 @app.post("/delete_video")

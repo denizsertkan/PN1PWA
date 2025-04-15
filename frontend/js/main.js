@@ -328,11 +328,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // IndexedDB logic
   openDatabase()
     .then(() => {
+      // Create and append loading spinner below the video list
+      const spinner = document.createElement('div');
+
+      spinner.id = 'videoListSpinner';
+      spinner.className = 'w-full flex justify-center my-4';
+      spinner.innerHTML = `
+        <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-[#93C575]"></div>
+      `;
+
       loadVideosFromDB((records) => {
         savedVideos = records.map((r) => ({
-          id: r.id, // The server's ID
+          id: r.id,
           url: URL.createObjectURL(r.blob),
+          created: r.created,
         }));
+
+        const existingSpinner = document.getElementById('videoListSpinner');
+
+        if (existingSpinner) existingSpinner.remove();
+
         displaySavedVideos();
       });
     })
