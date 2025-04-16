@@ -142,8 +142,7 @@
         Happy: '#93C575',
         Sad: '#1E40AF',
         Angry: '#DC2625',
-        Relaxed: '#3B82F5',
-        Excited: '#FBBF24',
+        Relaxed: '#F5F5F5',
         Neutral: '#9CA3AF',
       };
 
@@ -151,22 +150,30 @@
 
       data.forEach((entry) => {
         const time = entry.time;
-        Object.entries(entry).forEach(([emotion, value]) => {
-          if (emotion !== 'time' && value >= 0.5) {
-            markers.push({
-              name: emotion,
-              coord: [time, 0.1],
-              symbol: 'triangle',
-              symbolRotate: 180,
-              symbolSize: [10, 10],
-              itemStyle: { color: emotionColors[emotion] || '#888' },
-            });
+        let maxEmotion = null;
+        let maxValue = -1;
+
+        for (const [emotion, value] of Object.entries(entry)) {
+          if (emotion !== 'time' && value > maxValue) {
+            maxValue = value;
+            maxEmotion = emotion;
           }
-        });
+        }
+
+        if (maxEmotion !== null) {
+          markers.push({
+            name: maxEmotion,
+            coord: [time, 0.1],
+            symbol: 'triangle',
+            symbolRotate: 180,
+            symbolSize: [10, 10],
+            itemStyle: { color: emotionColors[maxEmotion] || '#888' },
+          });
+        }
       });
 
       const maxTime = Math.max(...data.map((d) => d.time)) || 15;
-      const roundedMax = Math.ceil(maxTime / 2) * 2;
+      const roundedMax = Math.ceil(maxTime / 1) * 1;
       const interval = roundedMax / 10;
 
       chart.setOption({
@@ -366,7 +373,7 @@
     videoEl.addEventListener('ended', () => { });
 
     updateSessionList();
-    setInterval(updateSessionList, 1250);
+    setInterval(updateSessionList, 5000);
   </script>
 </body>
 

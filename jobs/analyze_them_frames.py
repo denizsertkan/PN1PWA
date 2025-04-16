@@ -1,93 +1,77 @@
-#!/usr/bin/env python3
 import argparse
 import os
 import json
 import cv2
 import numpy as np
 import tensorflow as tf
+import time
+from tqdm import tqdm
 
-# Must match exactly the 5-class model output
-EMOTIONS = ["Angry", "Happy", "Relaxed", "Sad", "Background"]
+# Must match the 5-class model output
+EMOTIONS = ["Angry", "Happy", "Relaxed", "Sad", "Neutral"]
 
 
-def preprocess_frame(gray):
+def preprocess_frame(gray, debug=False):
     """
-    We already read in grayscale.
-    Resize to (192,192), normalize to [0,1],
-    expand dims to (1,192,192,1).
+    Resize to (192x192), normalize, add batch and channel dims.
     """
+    if debug:
+        print("Original shape:", gray.shape)
     gray = cv2.resize(gray, (192, 192))
     gray = gray / 255.0
     gray = np.expand_dims(gray, axis=(0, -1))  # -> (1,192,192,1)
+    if debug:
+        print("Preprocessed shape:", gray.shape)
     return gray
 
 
-def analyze_extracted_frames(frames_dir, model_path, output_json):
-    """
-    1) Load the model (which expects grayscale 192x192).
-    2) Loop over sorted .jpg frames in frames_dir.
-    3) For each frame, parse its timestamp from the filename,
-       read grayscale, preprocess, predict, store results.
-    4) Save final list of dicts to output_json.
-    """
+def analyze_extracted_frames(frames_dir, model_path, output_json, debug=False):
     model = tf.keras.models.load_model(model_path)
     results = []
 
-    # Sort by numeric part after underscore in "frame_XX.XX.jpg"
     frame_files = sorted(
         [f for f in os.listdir(frames_dir) if f.endswith(".jpg")],
         key=lambda x: float(os.path.splitext(x)[0].split("_")[1]),
     )
 
-    for fname in frame_files:
+    start_time = time.time()
+
+    for fname in tqdm(frame_files, desc="Analyzing frames"):
         frame_path = os.path.join(frames_dir, fname)
-        timestamp_str = os.path.splitext(fname)[0].split("_")[1]
-        timestamp_sec = float(timestamp_str)
+        try:
+            timestamp = float(os.path.splitext(fname)[0].split("_")[1])
+            img_gray = cv2.imread(frame_path, cv2.IMREAD_GRAYSCALE)
 
-        print(f"\n=== Processing: {fname}")
-        print(f"Timestamp (sec): {timestamp_sec}")
+            if img_gray is None:
+                if debug:
+                    print(f"⚠️ Could not read: {frame_path}")
+                continue
 
-        # Read as GRAYSCALE explicitly
-        img_gray = cv2.imread(frame_path, cv2.IMREAD_GRAYSCALE)
-        if img_gray is None:
-            print(f"WARNING: Could not read {frame_path} as grayscale. Skipping.")
+            preprocessed = preprocess_frame(img_gray, debug=debug)
+            preds = np.squeeze(model.predict(preprocessed))
+
+            result = {EMOTIONS[i]: float(preds[i]) for i in range(min(len(preds), len(EMOTIONS)))}
+            result["time"] = round(timestamp, 2)
+            results.append(result)
+
+        except Exception as e:
+            print(f"❌ Error processing {fname}: {e}")
             continue
-
-        # Preprocess
-        preprocessed = preprocess_frame(img_gray)
-
-        # Predict
-        preds = model.predict(preprocessed)
-        print("DEBUG: raw preds shape =", preds.shape)
-
-        preds = np.squeeze(preds)  # e.g. shape -> (5,)
-        print("DEBUG: after squeeze =", preds.shape)
-        print("DEBUG: EMOTIONS =", EMOTIONS)
-        print("DEBUG: len(EMOTIONS) =", len(EMOTIONS))
-        print("DEBUG: preds =", preds)
-
-        # Build emotion dict
-        n = min(len(preds), len(EMOTIONS))
-        scores = {}
-        for i in range(n):
-            scores[EMOTIONS[i]] = float(preds[i])
-
-        scores["time"] = round(timestamp_sec, 2)
-        results.append(scores)
 
     with open(output_json, "w") as f:
         json.dump(results, f, indent=2)
 
-    print(f"\nAnalysis complete. Saved {len(results)} entries to {output_json}")
+    duration = time.time() - start_time
+    print(f"\n✅ Analysis complete. {len(results)} frames processed in {duration:.2f}s")
+    print(f"📁 Results saved to: {output_json}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Analyze extracted grayscale frames with a 5-class model."
-    )
-    parser.add_argument("frames_dir", help="Directory containing extracted frames")
-    parser.add_argument("model_path", help="Path to the .h5 model file")
-    parser.add_argument("output_json", help="Path to save output JSON")
+    parser = argparse.ArgumentParser(description="Analyze frames using a 5-class grayscale model.")
+    parser.add_argument("frames_dir", help="Directory of frames")
+    parser.add_argument("model_path", help="Path to .h5 or .keras model")
+    parser.add_argument("output_json", help="Where to save analysis JSON")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
-    analyze_extracted_frames(args.frames_dir, args.model_path, args.output_json)
+    analyze_extracted_frames(args.frames_dir, args.model_path, args.output_json, debug=args.debug)

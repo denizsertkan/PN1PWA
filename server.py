@@ -1,6 +1,6 @@
 from sanic import Sanic, response
 from sanic.request import File
-from sanic.log import logger  # use Sanic's built-in logger
+from sanic.log import logger
 from sanic.response import json as sanic_json
 from datetime import datetime
 import os
@@ -11,149 +11,104 @@ import numpy as np
 import cv2
 import librosa
 import json
+import shutil
+from dotenv import load_dotenv
 
-# Create Sanic app
+load_dotenv()
+
+# --- Configuration ---
 app = Sanic("PN1")
-
-# Constants
 THRESHOLD = 30
 AUDIO_MODEL_PATH = "models/audio_classifier.h5"
-MICRO_MODEL_PATH = "models/micro_interaction.h5"
+MICRO_MODEL_PATH = "models/micro_interaction.keras"
 UPLOADS_DIR = "uploads"
 
-# Load models once at startup
+# --- Load Models Once ---
 audio_model = tf.keras.models.load_model(AUDIO_MODEL_PATH)
 micro_model = tf.keras.models.load_model(MICRO_MODEL_PATH)
 
-# Map of possible emotions
 EMOTIONS = [
-    "Surprised",
-    "Excited",
-    "Happy",
-    "Content",
-    "Relaxed",
-    "Tired",
-    "Bored",
-    "Sad",
-    "Neutral",
-    "Scared",
-    "Angry",
+    "Surprised", "Excited", "Happy", "Content", "Relaxed",
+    "Tired", "Bored", "Sad", "Neutral", "Scared", "Angry"
 ]
 
-# Serve static files
+# --- Static Files ---
 app.static("/", "./frontend/", name="frontend_static")
 app.static("/uploads", "./uploads", name="uploads_static")
 
-
 @app.get("/")
 async def serve_frontend(request):
-    """Serve index.html at the root."""
     return await response.file("./frontend/index.html")
 
-
+# --- Audio Processing ---
 def preprocess_audio(audio_path: str) -> np.ndarray:
-    """
-    Load audio at 16kHz, compute 40 MFCCs, average over time -> shape (1, 40).
-    """
     y, sr = librosa.load(audio_path, sr=16000)
     mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40)
     mfccs_mean = np.mean(mfccs, axis=1)
     mfccs_mean = (mfccs_mean - np.min(mfccs_mean)) / (np.ptp(mfccs_mean) + 1e-6)
     return np.expand_dims(mfccs_mean.astype(np.float32), axis=0)
 
-
 def analyze_audio(audio_path: str) -> dict:
-    """Run the audio model on preprocessed audio, return emotion dict."""
     arr = preprocess_audio(audio_path)
     preds = audio_model.predict(arr)[0]
-    # Only the first len(preds) of EMOTIONS
     return {EMOTIONS[i]: float(preds[i]) for i in range(len(preds))}
 
-
+# --- Helpers ---
 async def run_async_cmd(*cmd):
-    """
-    Run a command asynchronously, capturing stdout/stderr.
-    Returns (returncode, stdout, stderr).
-    """
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     stdout, stderr = await proc.communicate()
     return proc.returncode, stdout.decode(), stderr.decode()
 
-
 def save_uploaded_file(upload_dir: str, video_file: File) -> str:
-    """Save uploaded file (video.mp4) to upload_dir."""
     video_path = os.path.join(upload_dir, "video.mp4")
     with open(video_path, "wb") as f:
         f.write(video_file.body)
     return video_path
 
-
-def save_combo_analysis(
-    upload_dir: str, audio_emotions: dict, micro_analysis_path: str
-) -> str:
-    """Combine audio + micro analysis into combo_analysis.json."""
-    with open(micro_analysis_path, "r") as f:
+def save_combo_analysis(upload_dir: str, audio_emotions: dict, micro_path: str) -> str:
+    with open(micro_path, "r") as f:
         micro_emotions = json.load(f)
-
-    combo_data = {"audio_emotions": audio_emotions, "micro_emotions": micro_emotions}
+    combo = {"audio_emotions": audio_emotions, "micro_emotions": micro_emotions}
     combo_path = os.path.join(upload_dir, "combo_analysis.json")
     with open(combo_path, "w") as f:
-        json.dump(combo_data, f, indent=2)
+        json.dump(combo, f, indent=2)
     return combo_path
 
-
+# --- Main Upload/Analyze Route ---
 @app.post("/analyze")
 async def analyze(request):
-    """
-    1) Save uploaded video
-    2) Extract frames using extract_diff_frames.py
-    3) Analyze frames (micro) using analyze_them_frames.py
-    4) Extract audio via ffmpeg
-    5) Analyze audio, combine with micro -> combo_analysis.json
-    """
     video_file: File = request.files.get("video")
     if not video_file:
         return response.json({"error": "No video uploaded."}, status=400)
 
     upload_id = str(uuid.uuid4())[:8]
     upload_dir = os.path.join(UPLOADS_DIR, upload_id)
-    os.makedirs(upload_dir, exist_ok=True)
-
-    # 1) Save video
-    video_path = save_uploaded_file(upload_dir, video_file)
-
-    # 2) Run extract_diff_frames
     frames_dir = os.path.join(upload_dir, "frames")
     os.makedirs(frames_dir, exist_ok=True)
 
+    video_path = save_uploaded_file(upload_dir, video_file)
+
+    # Extract frames
     retcode, _, stderr = await run_async_cmd(
-        "python",
-        "jobs/extract_diff_frames.py",
-        video_path,
-        frames_dir,
-        "--threshold",
-        str(THRESHOLD),
+        "python", "jobs/extract_diff_frames.py", video_path, frames_dir,
+        "--threshold", str(THRESHOLD)
     )
     if retcode != 0:
         logger.error(f"Frame extraction error: {stderr}")
         return response.json({"error": "Frame extraction failed."}, status=500)
 
-    # 3) Analyze frames -> micro_analysis.json
-    micro_analysis_path = os.path.join(upload_dir, "micro_analysis.json")
+    # Analyze frames
+    micro_path = os.path.join(upload_dir, "micro_analysis.json")
     retcode, _, stderr = await run_async_cmd(
-        "python",
-        "jobs/analyze_them_frames.py",
-        frames_dir,
-        MICRO_MODEL_PATH,
-        micro_analysis_path,
+        "python", "jobs/analyze_them_frames.py", frames_dir, MICRO_MODEL_PATH, micro_path
     )
     if retcode != 0:
-        logger.error(f"Micro analysis error: {stderr}")
+        logger.error(f"Frame analysis error: {stderr}")
         return response.json({"error": "Frame analysis failed."}, status=500)
 
-    # 4) Extract audio
+    # Extract audio
     audio_path = os.path.join(upload_dir, "audio.wav")
     retcode, _, stderr = await run_async_cmd(
         "ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le", audio_path
@@ -162,73 +117,54 @@ async def analyze(request):
         logger.error(f"Audio extraction error: {stderr}")
         return response.json({"error": "Audio extraction failed."}, status=500)
 
-    # 5) Analyze audio + combine
+    # Analyze + Combine
     audio_emotions = analyze_audio(audio_path)
-    combo_path = save_combo_analysis(upload_dir, audio_emotions, micro_analysis_path)
+    combo_path = save_combo_analysis(upload_dir, audio_emotions, micro_path)
 
-    logger.info(f"Analysis complete for upload_id: {upload_id}")
+    return response.json({
+        "status": "success",
+        "upload_id": upload_id,
+        "timestamp": datetime.now().isoformat(),
+        "paths": {
+            "video": f"/uploads/{upload_id}/video.mp4",
+            "frames_dir": f"/uploads/{upload_id}/frames/",
+            "combo_analysis": f"/uploads/{upload_id}/combo_analysis.json",
+            "audio": f"/uploads/{upload_id}/audio.wav",
+        },
+    })
 
-    timestamp = datetime.now().isoformat()
-
-    return response.json(
-        {
-            "status": "success",
-            "upload_id": upload_id,
-            "timestamp": timestamp,
-            "paths": {
-                "video": f"/uploads/{upload_id}/video.mp4",
-                "frames_dir": f"/uploads/{upload_id}/frames/",
-                "combo_analysis": f"/uploads/{upload_id}/combo_analysis.json",
-                "audio": f"/uploads/{upload_id}/audio.wav",
-            },
-        }
-    )
-
-
+# --- Supporting Routes ---
 @app.get("/replay")
 async def replay_page(request):
-    """Serve the static replay.html page (upload_id will be selected via JS)."""
     return await response.file("./frontend/replay.html")
-
 
 @app.get("/uploads_index.json")
 async def list_uploaded_sessions(request):
     entries = []
     for upload_id in os.listdir(UPLOADS_DIR):
-        upload_path = os.path.join(UPLOADS_DIR, upload_id)
-        combo_path = os.path.join(upload_path, "combo_analysis.json")
-        video_path = os.path.join(upload_path, "video.mp4")
-        if os.path.isfile(combo_path) and os.path.isfile(video_path):
-            timestamp = os.path.getmtime(video_path)
-            entries.append({"id": upload_id, "timestamp": timestamp})
-
+        up_path = os.path.join(UPLOADS_DIR, upload_id)
+        if os.path.isfile(os.path.join(up_path, "combo_analysis.json")):
+            entries.append({
+                "id": upload_id,
+                "timestamp": os.path.getmtime(os.path.join(up_path, "video.mp4"))
+            })
     entries.sort(key=lambda x: x["timestamp"], reverse=True)
     return sanic_json(entries)
 
-
 @app.post("/delete_video")
 async def delete_video(request):
-    """
-    Deletes the upload folder from /uploads/<upload_id>.
-    Expects a JSON body like { "upload_id": "<your_id>" }.
-    """
     data = request.json
-    if not data or "upload_id" not in data:
-        return response.json({"error": "No upload_id provided."}, status=400)
+    upload_id = data.get("upload_id")
+    if not upload_id:
+        return response.json({"error": "Missing upload_id"}, status=400)
 
-    upload_id = data["upload_id"]
-    target_dir = os.path.join(UPLOADS_DIR, upload_id)
-    if not os.path.exists(target_dir):
+    path = os.path.join(UPLOADS_DIR, upload_id)
+    if os.path.exists(path):
+        shutil.rmtree(path)
+        return response.json({"status": "deleted", "upload_id": upload_id})
+    else:
         return response.json({"error": "Upload not found."}, status=404)
 
-    # WARNING: This removes the entire folder and all files inside.
-    # Make sure this is exactly what you want.
-    import shutil
-
-    shutil.rmtree(target_dir)
-
-    return response.json({"status": "deleted", "upload_id": upload_id})
-
-
+# --- Run ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4200, debug=True, single_process=True)
